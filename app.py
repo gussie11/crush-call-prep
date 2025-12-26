@@ -16,7 +16,8 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-# --- 3. MODEL SELECTOR ---
+# --- 3. DYNAMIC MODEL SELECTOR ---
+# This prevents 404 errors by asking Google what models are actually available to you.
 @st.cache_resource
 def get_working_models():
     try:
@@ -33,10 +34,11 @@ my_models = get_working_models()
 with st.sidebar:
     st.header("⚙️ System Settings")
     if my_models:
+        # Sort so newer 1.5 models appear at the top
         my_models.sort(reverse=True)
         selected_model = st.selectbox("Select Your Model:", my_models, index=0)
     else:
-        st.error("No models found. Check API Key.")
+        st.error("No models found. Please check your API Key permissions.")
         st.stop()
 
 # --- 4. THE BRAIN (System Prompt) ---
@@ -47,7 +49,7 @@ You are an expert Sales Coach specialized in the **CRUSH Methodology**.
 ### MODE A: DISCOVERY (Diagnose the "Change")
 **Trigger:** If Goal is "Discovery: Diagnose the Change".
 **Logic:** The user does NOT know the pain yet. Do not assume it.
-**Strategy:** Use the "Anchor -> Impact -> Future Gap" sequence.
+[cite_start]**Strategy:** Use the "Anchor -> Impact -> Future Gap" sequence [cite: 19-20].
 1.  **Anchor Question:** Probe the limitations of the *Current State* (Status Quo).
 2.  **Impact Question:** Tie those limitations to **Results** (if Benefactor) or **Effort** (if User).
 3.  **Future Gap:** Ask what the Ideal Future looks like.
@@ -58,7 +60,7 @@ You are an expert Sales Coach specialized in the **CRUSH Methodology**.
 **Logic:** The pain is known. Now we must sell the *Adoption*.
 **Strategy:**
 1.  **The Move:** Ask for the commitment to the next CDM Stage.
-2.  **The Future:** Address the specific **CRUSH Risk** (Usage/Support/Harmonization).
+2.  [cite_start]**The Future:** Address the specific **CRUSH Risk** (Usage/Support/Harmonization) selected by the user [cite: 540-542].
 
 ### INPUTS:
 * **Context:** CDM {stage}, RAID {raid_role}, RUBIE {rubie_role}.
@@ -90,20 +92,24 @@ with col1:
     cdm_stage = st.selectbox("CDM Stage", [
         "0 - Need (Latent Pain)",
         "1 - Sourcing (Evaluating Options)", 
-        "2 - Selected (Validating Fit)"
+        "2 - Selected (Validating Fit)",
+        "3 - Ordered (Commercials)",
+        "4 - Usage (Implementation)"
     ])
     
     raid_role = st.selectbox("RAID Role", [
         "Recommender (Champion)", 
         "Agree’er (Veto Power)", 
-        "Decision Maker (Signer)"
+        "Decision Maker (Signer)",
+        "Informer (Expert)"
     ])
     
     rubie_role = st.selectbox("RUBIE POV", [
         "Benefactor (Cares about Results/Outcomes)", 
         "Economic Buyer (Cares about ROI)",
         "User (Cares about Usability)",
-        "Implementor (Cares about Feasibility)"
+        "Implementor (Cares about Feasibility)",
+        "Ripple (Impacted)"
     ])
 
 # --- COL 2: THE GOAL ---
@@ -114,15 +120,17 @@ with col2:
     call_goal = st.selectbox("Call Objective", [
         "Discovery: Diagnose the 'Change' (Pain)",
         "Progression: De-Risk the Future (Adoption)"
-    ], help="Select 'Discovery' if you don't know the pain yet.")
+    ], help="Select 'Discovery' if you don't know the pain yet. Select 'Progression' if you are building the solution.")
 
 # --- COL 3: THE FOCUS ---
 with col3:
     st.header("3. The Focus")
+    
+    # Dynamic Logic: The focus options change based on the Goal
     if "Discovery" in call_goal:
         st.warning("Discovery Mode Active")
         crush_focus = "C - Change (Why is Status Quo failing?)"
-        st.write(f"Focusing on uncovering **Change** for the **{rubie_role.split('(')[0]}**.")
+        st.write(f"Focusing on probing the **Current State** for the **{rubie_role.split('(')[0]}**.")
     else:
         st.success("Progression Mode Active")
         crush_focus = st.selectbox("Primary Risk to Resolve", [
@@ -139,24 +147,34 @@ with col3:
 if generate_btn:
     with st.spinner(f"Architecting using {selected_model}..."):
         try:
+            # Prepare inputs
             inputs = f"""
             CONTEXT: CDM {cdm_stage}, RAID {raid_role}, RUBIE {rubie_role}
             GOAL: {call_goal}
             FOCUS: {crush_focus}
             """
             
+            # Initialize Model
             model = genai.GenerativeModel(selected_model)
+            
+            # Construct Prompt (Safe Method)
             final_prompt = f"{CRUSH_SYSTEM_INSTRUCTION}\n\nTASK: Generate Script for:\n{inputs}"
 
+            # Generate
             response = model.generate_content(final_prompt)
             
+            # Render Results
             st.markdown("---")
             st.markdown(response.text)
             
+            # Contextual Footer (Fixed Syntax Error)
             if "Discovery" in call_goal:
-                 st.info("💡 **CRUSH Logic:** You are probing the **Current State** to find the gap. [cite_start]Once they admit the gap, you have established **Change** [cite: 19-20].")
+                 st.info("💡 **CRUSH Logic:** You are probing the **Current State** to find the gap. Once they admit the gap, you have established **Change**.")
             else:
-                 [cite_start]st.info(f"💡 **CRUSH Logic:** You are de-risking the **Future State** ({crush_focus.split('-')[1]}) so they feel safe to move[cite: 540].")
+                 # Clean string splitting to avoid errors
+                 focus_name = crush_focus.split('-')[1] if '-' in crush_focus else crush_focus
+                 st.info(f"💡 **CRUSH Logic:** You are de-risking the **Future State** ({focus_name}) so they feel safe to move.")
 
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"An error occurred: {e}")
+            st.caption("Tip: Try selecting a different model from the Sidebar.")
