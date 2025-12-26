@@ -33,6 +33,7 @@ my_models = get_working_models()
 with st.sidebar:
     st.header("⚙️ System Settings")
     if my_models:
+        # Sort so newer 1.5 models appear at the top
         my_models.sort(reverse=True)
         selected_model = st.selectbox("Select Your Model:", my_models, index=0)
     else:
@@ -47,7 +48,7 @@ You are an expert Sales Coach specialized in the **CRUSH Methodology**.
 ### MODE A: DISCOVERY (Diagnose the "Change")
 **Trigger:** If Goal is "Discovery: Diagnose the Change".
 **Logic:** The user does NOT know the pain yet. Do not assume it.
-[cite_start]**Strategy:** Use the "Anchor -> Impact -> Future Gap" sequence [cite: 19-20].
+**Strategy:** Use the "Anchor -> Impact -> Future Gap" sequence.
 1.  **Anchor Question:** Probe the limitations of the *Current State* (Status Quo).
 2.  **Impact Question:** Tie those limitations to **Results** (if Benefactor) or **Effort** (if User).
 3.  **Future Gap:** Ask what the Ideal Future looks like.
@@ -58,7 +59,7 @@ You are an expert Sales Coach specialized in the **CRUSH Methodology**.
 **Logic:** The pain is known. Now we must sell the *Adoption*.
 **Strategy:**
 1.  **The Move:** Ask for the commitment to the next CDM Stage.
-2.  [cite_start]**The Future:** Address the specific **CRUSH Risk** (Usage/Support/Harmonization) selected by the user [cite: 540-542].
+2.  **The Future:** Address the specific **CRUSH Risk** (Usage/Support/Harmonization) selected by the user.
 
 ### INPUTS:
 * **Context:** CDM {stage}, RAID {raid_role}, RUBIE {rubie_role}.
@@ -171,10 +172,11 @@ if generate_btn:
             
             # Contextual Footer
             if "Discovery" in call_goal:
-                 st.info("💡 **CRUSH Logic:** You are probing the **Current State** to find the gap. [cite_start]Once they admit the gap, you have established **Change** [cite: 19-20].")
+                 st.info("💡 **CRUSH Logic:** You are probing the **Current State** to find the gap. Once they admit the gap, you have established **Change**.")
             else:
+                 # Clean string splitting to avoid errors
                  focus_name = crush_focus.split('-')[1] if '-' in crush_focus else crush_focus
-                 [cite_start]st.info(f"💡 **CRUSH Logic:** You are de-risking the **Future State** ({focus_name}) so they feel safe to move[cite: 540].")
+                 st.info(f"💡 **CRUSH Logic:** You are de-risking the **Future State** ({focus_name}) so they feel safe to move.")
 
         except Exception as e:
             st.error(f"Error: {e}")
