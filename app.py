@@ -2,10 +2,10 @@ import streamlit as st
 import google.generativeai as genai
 import os
 
-# --- 1. APP CONFIGURATION ---
+# --- 1. CONFIGURATION ---
 st.set_page_config(page_title="CRUSH Sales Coach", page_icon="🦁", layout="wide")
 
-# --- 2. THE CRUSH BRAIN (System Prompt) ---
+# --- 2. CRUSH LOGIC (The Brain) ---
 CRUSH_SYSTEM_INSTRUCTION = """
 You are an expert Sales Coach specialized in the **CRUSH Methodology**.
 Your goal is to coach a salesperson to prepare for a specific interaction. 
@@ -23,15 +23,8 @@ You must critique their plan based on **Adoption Risk** (Fear of the Future), no
 
 **3. THE PERSON TRAP (RAID & RUBIE)**
 * **Rule:** You cannot solve a "Person Fear" with a "Company Goal."
-* **RAID:**
-    * *Recommender:* Needs ammunition to sell internally.
-    * *Agree’er:* Needs risk mitigation (Veto power).
-    * *Informer:* Needs technical accuracy.
-    * *Decision Maker:* Needs accountability protection.
-* **RUBIE (The POV):**
-    * *User:* Fears friction/difficulty.
-    * *Implementor:* Fears complexity/failure.
-    * *Economic Buyer:* Fears financial loss/ROI.
+* **RAID:** Recommender (Driver), Agree’er (Veto), Informer (Expert), Decision Maker (Signer).
+* **RUBIE:** User (Usability), Implementor (Feasibility), Economic Buyer (ROI).
 * **Action:** Ensure the talking points match the specific **RUBIE** fear. (e.g., Don't sell ROI to an Implementor).
 
 ### YOUR OUTPUT FORMAT:
@@ -48,7 +41,7 @@ You must critique their plan based on **Adoption Risk** (Fear of the Future), no
     * **Decision-Oriented:** Move to the next Decision Boundary.
 
 **3. ❓ The Golden Questions**
-* Provide 3 distinct questions to ask this specific person (Role: {raid_role}, POV: {rubie_role}) to uncover their hidden Adoption Risk.
+* Provide 3 distinct questions to ask this specific person to uncover their hidden Adoption Risk.
 
 Tone: Direct, coaching, authoritative. No fluff.
 """
@@ -60,152 +53,82 @@ else:
     api_key = st.sidebar.text_input("Enter Google API Key", type="password")
 
 if not api_key:
-    st.warning("⚠️ Please enter your Google API Key to activate the Coach.")
+    st.warning("⚠️ Enter API Key to continue.")
     st.stop()
 
 genai.configure(api_key=api_key)
 
-# --- 4. ROBUST MODEL LOADER (Fixes 404 Errors) ---
-def get_model():
+# --- 4. ROBUST MODEL FINDER ---
+@st.cache_resource
+def get_best_model():
     """
-    Tries multiple model versions to find one that works.
-    Returns: (model_object, model_name, supports_system_instruction_bool)
+    Dynamically lists available models and picks the best one.
+    Returns: (model_name, supports_system_instructions_boolean)
     """
-    # List of models to try in order of preference
-    models_to_try = [
-        'gemini-1.5-flash',
-        'gemini-1.5-flash-latest',
-        'gemini-1.5-pro',
-        'gemini-1.5-pro-latest',
-        'gemini-pro' # Fallback to 1.0
-    ]
-    
-    for model_name in models_to_try:
-        try:
-            # Try to initialize WITH system instruction (preferred)
-            model = genai.GenerativeModel(model_name, system_instruction=CRUSH_SYSTEM_INSTRUCTION)
-            return model, model_name, True
-        except Exception:
-            try:
-                # If that fails, try WITHOUT system instruction (legacy mode)
-                model = genai.GenerativeModel(model_name)
-                return model, model_name, False
-            except Exception:
-                continue # Try next model
-            
-    # If everything fails
-    st.error("Could not connect to any Google Gemini model. Please check your API Key.")
-    st.stop()
+    try:
+        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    except Exception as e:
+        # If list_models fails, default to a safe bet
+        return 'gemini-pro', False
 
-# --- 5. THE INTERFACE ---
+    # Priority list
+    priorities = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro']
+    
+    for priority in priorities:
+        for available in available_models:
+            if priority in available:
+                # 1.5 models support system instructions natively
+                supports_sys = '1.5' in available 
+                return available, supports_sys
+    
+    # Fallback
+    return 'gemini-pro', False
+
+# --- 5. UI LAYOUT ---
 st.title("🦁 CRUSH Sales Call Coach")
-st.markdown("### Decision Architecture & Risk Analysis")
-st.caption("Don't just 'check in'. Architect the decision.")
+st.caption("Contextual Adoption Risk Analyzer")
 
 col1, col2 = st.columns([1, 2])
 
 with col1:
-    st.header("1. The Context")
-    st.info("Where are they in the decision?")
-    
-    cdm_stage = st.selectbox(
-        "CDM Stage (The Company Journey)",
-        [
-            "0 - Need (Latent Pain)",
-            "1 - Sourcing (Evaluating Options)",
-            "2 - Selected (Vendor Chosen)",
-            "3 - Ordered (Commercials)",
-            "4 - Usage (Implementation)",
-            "5 - Adoption (Value Realized)",
-            "6 - Assess (Renewal/Pivot)"
-        ],
-        help="Stage 0-1 = Pain Focus. Stage 2+ = Adoption Risk Focus."
-    )
-    
-    st.info("Who are you meeting?")
-    raid_role = st.selectbox(
-        "RAID Role (Decision Function)",
-        ["Recommender (Driver)", "Agree’er (Veto Power)", "Informer (Expert)", "Decision Maker (Signer)"],
-        help="Who is this person in the buying committee?"
-    )
-    
-    rubie_role = st.selectbox(
-        "RUBIE POV (Adoption View)",
-        ["User (Usability)", "Implementor (Feasibility)", "Benefactor (Outcomes)", "Economic Buyer (ROI)", "Ripple (Impacted)"],
-        help="What creates value (or fear) for this specific person?"
-    )
+    st.header("1. Context")
+    cdm_stage = st.selectbox("CDM Stage", [
+        "0 - Need", "1 - Sourcing", "2 - Selected", 
+        "3 - Ordered", "4 - Usage", "5 - Adoption", "6 - Assess"
+    ])
+    raid_role = st.selectbox("RAID Role", ["Recommender", "Agree’er", "Informer", "Decision Maker"])
+    rubie_role = st.selectbox("RUBIE POV", ["User", "Implementor", "Benefactor", "Economic Buyer", "Ripple"])
 
 with col2:
-    st.header("2. The Plan")
-    st.success("Draft your approach")
-    
-    user_draft = st.text_area(
-        "Paste your Script, Email, or Goal for the call:",
-        height=250,
-        placeholder="e.g. 'Hi Sarah, just checking in to see if you have signed the contract yet. We are excited to get started...'"
-    )
-    
-    run_button = st.button("🦁 Coach Me", type="primary", use_container_width=True)
+    st.header("2. Draft")
+    user_draft = st.text_area("Paste your script/email:", height=200)
+    run_btn = st.button("Coach Me", type="primary", use_container_width=True)
 
-# --- 6. THE OUTPUT GENERATION ---
-if run_button:
-    if not user_draft:
-        st.error("Please enter a draft first.")
-    else:
-        with st.spinner("Analyzing Adoption Risk..."):
-            try:
-                # Get the working model dynamically
-                model, model_name, supports_sys_inst = get_model()
-                
-                # Construct Prompt Strategy
-                # If the model supports system instructions natively, we use clean input.
-                # If it's an older model, we manually prepend the instructions to the user prompt.
-                if supports_sys_inst:
-                    final_prompt = f"""
-                    CONTEXT:
-                    - CDM Stage: {cdm_stage}
-                    - RAID Role: {raid_role}
-                    - RUBIE POV: {rubie_role}
-                    
-                    USER DRAFT:
-                    {user_draft}
-                    """
-                else:
-                    final_prompt = f"""
-                    SYSTEM INSTRUCTION:
-                    {CRUSH_SYSTEM_INSTRUCTION}
-                    
-                    USER TASK:
-                    Analyze this scenario:
-                    CONTEXT:
-                    - CDM Stage: {cdm_stage}
-                    - RAID Role: {raid_role}
-                    - RUBIE POV: {rubie_role}
-                    
-                    USER DRAFT:
-                    {user_draft}
-                    """
+# --- 6. EXECUTION ---
+if run_btn and user_draft:
+    with st.spinner("Analyzing..."):
+        try:
+            # 1. Get the best available model
+            model_name, supports_sys = get_best_model()
+            
+            # 2. Build the Prompt
+            if supports_sys:
+                # Modern Method (1.5)
+                model = genai.GenerativeModel(model_name, system_instruction=CRUSH_SYSTEM_INSTRUCTION)
+                final_prompt = f"CONTEXT: CDM {cdm_stage}, RAID {raid_role}, RUBIE {rubie_role}\n\nDRAFT:\n{user_draft}"
+            else:
+                # Legacy Method (1.0) - Prepend instructions manually
+                model = genai.GenerativeModel(model_name)
+                final_prompt = f"{CRUSH_SYSTEM_INSTRUCTION}\n\nTASK:\nAnalyze this:\nCONTEXT: CDM {cdm_stage}, RAID {raid_role}, RUBIE {rubie_role}\n\nDRAFT:\n{user_draft}"
 
-                # Generate
-                response = model.generate_content(final_prompt)
-                
-                # Render
-                st.markdown("---")
-                st.caption(f"🧠 Connected via: {model_name}")
-                st.markdown(response.text)
-                
-            except Exception as e:
-                st.error(f"An unexpected error occurred: {e}")
-
-# --- 7. SIDEBAR REFERENCE ---
-with st.sidebar:
-    st.markdown("### CRUSH Reference")
-    st.markdown("""
-    **Proximity Rule:**
-    * ❌ Level 4: "Hope you are well"
-    * ✅ Level 2: "Reference to shared contact"
-    
-    **Focus Rule:**
-    * 📉 Early Stage: Sell **Change/Results**
-    * 📈 Late Stage: Sell **Usage/Support**
-    """)
+            # 3. Generate
+            response = model.generate_content(final_prompt)
+            
+            # 4. Display
+            st.success(f"Connected to: {model_name}")
+            st.markdown("---")
+            st.markdown(response.text)
+            
+        except Exception as e:
+            st.error(f"Error: {e}")
+            st.info("Try checking your API key permissions or updating the library locally with: pip install --upgrade google-generativeai")
