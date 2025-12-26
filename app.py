@@ -16,132 +16,121 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-# --- 3. DYNAMIC MODEL SELECTOR (The Fix) ---
+# --- 3. MODEL SELECTOR ---
 @st.cache_resource
 def get_working_models():
-    """
-    Asks the API: 'What models do I actually have access to?'
-    Returns a list of valid model names.
-    """
     try:
         model_list = []
         for m in genai.list_models():
-            # Only get models that can generate text (content)
             if 'generateContent' in m.supported_generation_methods:
                 model_list.append(m.name)
         return model_list
     except Exception as e:
         return []
 
-# Get the valid list from your account
 my_models = get_working_models()
 
-# SIDEBAR: Model Selection
 with st.sidebar:
     st.header("⚙️ System Settings")
     if my_models:
-        # Sort so the newest 1.5 models are usually at the top
         my_models.sort(reverse=True)
         selected_model = st.selectbox("Select Your Model:", my_models, index=0)
-        st.success(f"Connected to: {selected_model}")
     else:
-        st.error("Critical Error: Your API Key works, but Google says you have no models available. Check your Google Cloud console billing/permissions.")
+        st.error("No models found. Check API Key.")
         st.stop()
 
-# --- 4. THE ARCHITECT BRAIN (System Prompt) ---
+# --- 4. THE BRAIN (System Prompt) ---
 CRUSH_SYSTEM_INSTRUCTION = """
 You are an expert Sales Coach specialized in the **CRUSH Methodology**.
-**Your Mission:** Generate a progression call script that achieves TWO distinct goals:
-1.  **The Move (CDM/RAID):** Advance the specific **Decision Role** to the next **CDM Stage**.
-2.  **The Future (CRUSH/RUBIE):** De-risk the **Future State** by addressing specific Adoption Risks (C.R.U.S.H.).
+**Your Mission:** Generate a specific Call Script based on the User's Goal.
+
+### MODE A: DISCOVERY (Diagnose the "Change")
+**Trigger:** If Goal is "Discovery: Diagnose the Change".
+**Logic:** The user does NOT know the pain yet. Do not assume it.
+**Strategy:** Use the "Anchor -> Impact -> Future Gap" sequence.
+1.  **Anchor Question:** Probe the limitations of the *Current State* (Status Quo).
+2.  **Impact Question:** Tie those limitations to **Results** (if Benefactor) or **Effort** (if User).
+3.  **Future Gap:** Ask what the Ideal Future looks like.
+* **Constraint:** Do NOT ask "What keeps you up at night?". Ask "How is the current process limiting X?".
+
+### MODE B: PROGRESSION (De-Risk the Future)
+**Trigger:** If Goal is "Progression: De-Risk the Future".
+**Logic:** The pain is known. Now we must sell the *Adoption*.
+**Strategy:**
+1.  **The Move:** Ask for the commitment to the next CDM Stage.
+2.  **The Future:** Address the specific **CRUSH Risk** (Usage/Support/Harmonization).
 
 ### INPUTS:
-* **Goal 1 (Mechanics):** CDM Stage {stage}, RAID Role {raid_role}.
-* **Goal 2 (Future):** RUBIE POV {rubie_role}, Risk Factor {crush_element}.
-* **Trust:** Proximity {proximity}.
-
-### GENERATION RULES:
-
-**1. THE OPENING (Visual & Trust):**
-* Establish **Level 2/3 Proximity** immediately.
-* State a "Collaborative Agenda" that explicitly links the *Decision* to the *Future Value*.
-
-**2. THE FUTURE STATE (Addressing Goal 2):**
-* You must script talking points that resolve the specific **CRUSH Risk Factor** selected.
-* *Logic Check:* If the user selected "Usage Risk" for an "Implementor," talk about *workflows and feasibility*, not ROI.
-* *Logic Check:* If the user selected "Support Risk," talk about *safety nets and recovery*.
-
-**3. THE DECISION (Addressing Goal 1):**
-* The Call to Action (CTA) must be a **Decision Boundary Cross**.
-* Do not ask for "feedback." Ask for the specific commitment required to move from Stage {stage} to the next.
+* **Context:** CDM {stage}, RAID {raid_role}, RUBIE {rubie_role}.
+* **Goal:** {call_goal}.
+* **Risk/Focus:** {crush_focus}.
 
 ### OUTPUT STRUCTURE:
-**1. 🦁 The "Safe" Opener**
-(Verbatim script establishing Proximity and the Visual Agenda).
+**1. 🦁 The Opener**
+(A visual/collaborative agenda script).
 
-**2. 🔮 The Future State (De-Risking)**
-(3 Bullet points specifically solving the **{crush_element}** risk for the **{rubie_role}**).
+**2. 🎯 Strategic Questions (The Core)**
+(3 Bullet points following the Mode A or Mode B strategy above).
 
-**3. 🚀 The Move (Decision Ask)**
-(A specific closing question to get the **{raid_role}** to commit to the next CDM stage).
+**3. 🚀 The Next Step**
+(A specific closing question).
 
-Tone: Strategic, "Orchestrator", High-Value.
+Tone: Strategic, Professional, "Orchestrator".
 """
 
-# --- 5. THE UI WIZARD ---
+# --- 5. THE WIZARD UI ---
 st.title("🦁 CRUSH Call Architect")
-st.caption("Define the Move. De-risk the Future.")
+st.caption("Contextual Call Planner")
 
 col1, col2, col3 = st.columns(3)
 
-# --- GOAL 1: THE MOVE (Mechanics) ---
+# --- COL 1: CONTEXT ---
 with col1:
-    st.header("1. The Move")
-    st.info("Mechanics: CDM & RAID")
-    
-    cdm_stage = st.selectbox("Current CDM Stage", [
+    st.header("1. The Context")
+    cdm_stage = st.selectbox("CDM Stage", [
+        "0 - Need (Latent Pain)",
         "1 - Sourcing (Evaluating Options)", 
-        "2 - Selected (Validating Fit)", 
-        "3 - Ordered (Legal/Commercials)", 
-        "4 - Usage (Implementation Prep)"
-    ], help="Where are they now? We need to move them to the NEXT stage.")
+        "2 - Selected (Validating Fit)"
+    ])
     
-    raid_role = st.selectbox("Decision Role (RAID)", [
-        "Recommender (Needs to sell it internally)", 
-        "Agree’er (Needs to feel safe to approve)", 
-        "Informer (Needs technical details)", 
-        "Decision Maker (Needs accountability protection)"
-    ], help="Who are we asking to move?")
+    raid_role = st.selectbox("RAID Role", [
+        "Recommender (Champion)", 
+        "Agree’er (Veto Power)", 
+        "Decision Maker (Signer)"
+    ])
+    
+    rubie_role = st.selectbox("RUBIE POV", [
+        "Benefactor (Cares about Results/Outcomes)", 
+        "Economic Buyer (Cares about ROI)",
+        "User (Cares about Usability)",
+        "Implementor (Cares about Feasibility)"
+    ])
 
-# --- GOAL 2: THE FUTURE (Content) ---
+# --- COL 2: THE GOAL ---
 with col2:
-    st.header("2. The Future")
-    st.success("Adoption: CRUSH & RUBIE")
+    st.header("2. The Goal")
+    st.info("What is the purpose of this call?")
     
-    rubie_role = st.selectbox("Adoption POV (RUBIE)", [
-        "User (Cares about Usability)", 
-        "Implementor (Cares about Feasibility)", 
-        "Benefactor (Cares about Results)", 
-        "Economic Buyer (Cares about ROI)"
-    ], help="Whose view of the future matters most here?")
+    call_goal = st.selectbox("Call Objective", [
+        "Discovery: Diagnose the 'Change' (Pain)",
+        "Progression: De-Risk the Future (Adoption)"
+    ], help="Select 'Discovery' if you don't know the pain yet.")
 
-    crush_element = st.selectbox("Primary Future Risk (CRUSH)", [
-        "C - Change Risk (Why do this now?)",
-        "R - Results Risk (Will we get ROI?)",
-        "U - Usage Risk (Is it too hard to use?)",
-        "S - Support Risk (What if it breaks?)",
-        "H - Harmonization Risk (Politics/Integration)"
-    ], help="What specific part of the Future State are they afraid of?")
-
-# --- CONTEXT: THE TRUST ---
+# --- COL 3: THE FOCUS ---
 with col3:
-    st.header("3. The Trust")
-    st.warning("Connection: Proximity")
-    
-    proximity = st.radio("Proximity Level", [
-        "Level 2: Transferred (Referral)",
-        "Level 3: Related (Context/Industry)",
-    ], help="Level 4 (Cliché) is banned.")
+    st.header("3. The Focus")
+    if "Discovery" in call_goal:
+        st.warning("Discovery Mode Active")
+        crush_focus = "C - Change (Why is Status Quo failing?)"
+        st.write(f"Focusing on uncovering **Change** for the **{rubie_role.split('(')[0]}**.")
+    else:
+        st.success("Progression Mode Active")
+        crush_focus = st.selectbox("Primary Risk to Resolve", [
+            "R - Results Risk (ROI confidence)",
+            "U - Usage Risk (Usability/Workflow)",
+            "S - Support Risk (Safety Net)",
+            "H - Harmonization Risk (Politics)"
+        ])
     
     st.markdown("---")
     generate_btn = st.button("🦁 Architect the Call", type="primary", use_container_width=True)
@@ -150,17 +139,13 @@ with col3:
 if generate_btn:
     with st.spinner(f"Architecting using {selected_model}..."):
         try:
-            # Inputs
             inputs = f"""
-            GOAL 1 (THE MOVE): Move {raid_role} from CDM Stage {cdm_stage} to Next Stage.
-            GOAL 2 (THE FUTURE): De-risk {crush_element} for the {rubie_role}.
-            TRUST: {proximity}
+            CONTEXT: CDM {cdm_stage}, RAID {raid_role}, RUBIE {rubie_role}
+            GOAL: {call_goal}
+            FOCUS: {crush_focus}
             """
             
-            # Use the exact string selected from the sidebar
             model = genai.GenerativeModel(selected_model)
-            
-            # Safe Prompting Method (Works on all model versions)
             final_prompt = f"{CRUSH_SYSTEM_INSTRUCTION}\n\nTASK: Generate Script for:\n{inputs}"
 
             response = model.generate_content(final_prompt)
@@ -168,7 +153,10 @@ if generate_btn:
             st.markdown("---")
             st.markdown(response.text)
             
-            st.info(f"💡 **CRUSH Logic:** You are solving **{crush_element.split('-')[1]}** for the **{rubie_role.split('(')[0]}**.")
+            if "Discovery" in call_goal:
+                 st.info("💡 **CRUSH Logic:** You are probing the **Current State** to find the gap. [cite_start]Once they admit the gap, you have established **Change** [cite: 19-20].")
+            else:
+                 [cite_start]st.info(f"💡 **CRUSH Logic:** You are de-risking the **Future State** ({crush_focus.split('-')[1]}) so they feel safe to move[cite: 540].")
 
         except Exception as e:
             st.error(f"Error: {e}")
