@@ -1,11 +1,11 @@
 import streamlit as st
 import google.generativeai as genai
+import os
 
 # --- 1. APP CONFIGURATION ---
 st.set_page_config(page_title="CRUSH Sales Coach", page_icon="🦁", layout="wide")
 
 # --- 2. THE CRUSH BRAIN (System Prompt) ---
-# This instruction embeds the canonical logic to detect "Traps" and enforce "Adoption Risk" thinking.
 CRUSH_SYSTEM_INSTRUCTION = """
 You are an expert Sales Coach specialized in the **CRUSH Methodology**.
 Your goal is to coach a salesperson to prepare for a specific interaction. 
@@ -54,7 +54,6 @@ Tone: Direct, coaching, authoritative. No fluff.
 """
 
 # --- 3. API SETUP ---
-# Tries to find key in secrets first, otherwise asks in sidebar
 if "GOOGLE_API_KEY" in st.secrets:
     api_key = st.secrets["GOOGLE_API_KEY"]
 else:
@@ -66,7 +65,34 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-# --- 4. THE INTERFACE ---
+# --- 4. ROBUST MODEL LOADER ---
+# This function tries multiple model names to prevent 404 errors
+def get_model():
+    models_to_try = [
+        'gemini-1.5-flash',
+        'gemini-1.5-flash-latest',
+        'gemini-1.5-pro',
+        'gemini-pro'
+    ]
+    
+    for model_name in models_to_try:
+        try:
+            # Try to initialize with system instructions
+            model = genai.GenerativeModel(model_name, system_instruction=CRUSH_SYSTEM_INSTRUCTION)
+            return model, model_name, True # True means system_instruction is supported
+        except Exception:
+            continue
+            
+    # Fallback: If all specific attempts fail, try basic gemini-pro without system instruction
+    # This handles cases where the library version is very old
+    try:
+        model = genai.GenerativeModel('gemini-pro')
+        return model, "gemini-pro (Legacy Mode)", False
+    except Exception as e:
+        st.error(f"Critical Error: Could not connect to any Google Gemini model. Error: {e}")
+        st.stop()
+
+# --- 5. THE INTERFACE ---
 st.title("🦁 CRUSH Sales Call Coach")
 st.markdown("### Decision Architecture & Risk Analysis")
 st.caption("Don't just 'check in'. Architect the decision.")
@@ -77,7 +103,6 @@ with col1:
     st.header("1. The Context")
     st.info("Where are they in the decision?")
     
-    # CDM Selector
     cdm_stage = st.selectbox(
         "CDM Stage (The Company Journey)",
         [
@@ -93,14 +118,12 @@ with col1:
     )
     
     st.info("Who are you meeting?")
-    # RAID Selector
     raid_role = st.selectbox(
         "RAID Role (Decision Function)",
         ["Recommender (Driver)", "Agree’er (Veto Power)", "Informer (Expert)", "Decision Maker (Signer)"],
         help="Who is this person in the buying committee?"
     )
     
-    # RUBIE Selector
     rubie_role = st.selectbox(
         "RUBIE POV (Adoption View)",
         ["User (Usability)", "Implementor (Feasibility)", "Benefactor (Outcomes)", "Economic Buyer (ROI)", "Ripple (Impacted)"],
@@ -119,38 +142,56 @@ with col2:
     
     run_button = st.button("🦁 Coach Me", type="primary", use_container_width=True)
 
-# --- 5. THE OUTPUT ---
+# --- 6. THE OUTPUT GENERATION ---
 if run_button:
     if not user_draft:
         st.error("Please enter a draft first.")
     else:
         with st.spinner("Analyzing Adoption Risk..."):
             try:
-                # Initialize Model
-                model = genai.GenerativeModel('gemini-1.5-flash', system_instruction=CRUSH_SYSTEM_INSTRUCTION)
+                # Get the working model
+                model, model_name, supports_sys_inst = get_model()
                 
                 # Construct Prompt
-                prompt_content = f"""
-                CONTEXT:
-                - CDM Stage: {cdm_stage}
-                - RAID Role: {raid_role}
-                - RUBIE POV: {rubie_role}
-                
-                USER DRAFT:
-                {user_draft}
-                """
-                
+                # If system instruction wasn't supported natively, we prepend it to the prompt manually
+                if supports_sys_inst:
+                    final_prompt = f"""
+                    CONTEXT:
+                    - CDM Stage: {cdm_stage}
+                    - RAID Role: {raid_role}
+                    - RUBIE POV: {rubie_role}
+                    
+                    USER DRAFT:
+                    {user_draft}
+                    """
+                else:
+                    final_prompt = f"""
+                    SYSTEM INSTRUCTION:
+                    {CRUSH_SYSTEM_INSTRUCTION}
+                    
+                    USER TASK:
+                    Analyze this scenario:
+                    CONTEXT:
+                    - CDM Stage: {cdm_stage}
+                    - RAID Role: {raid_role}
+                    - RUBIE POV: {rubie_role}
+                    
+                    USER DRAFT:
+                    {user_draft}
+                    """
+
                 # Generate
-                response = model.generate_content(prompt_content)
+                response = model.generate_content(final_prompt)
                 
                 # Render
                 st.markdown("---")
+                st.caption(f"Generated using model: {model_name}")
                 st.markdown(response.text)
                 
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"An unexpected error occurred: {e}")
 
-# --- 6. SIDEBAR REFERENCE ---
+# --- 7. SIDEBAR REFERENCE ---
 with st.sidebar:
     st.markdown("### CRUSH Reference")
     st.markdown("""
