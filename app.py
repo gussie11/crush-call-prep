@@ -4,7 +4,7 @@ import google.generativeai as genai
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="CRUSH Call Architect", page_icon="🦁", layout="wide")
 
-# --- 2. API SETUP & MODEL DISCOVERY ---
+# --- 2. API SETUP ---
 if "GOOGLE_API_KEY" in st.secrets:
     api_key = st.secrets["GOOGLE_API_KEY"]
 else:
@@ -17,35 +17,36 @@ if not api_key:
 genai.configure(api_key=api_key)
 
 # --- 3. DYNAMIC MODEL SELECTOR (The Fix) ---
-# Instead of hardcoding names, we ask the API what is available.
 @st.cache_resource
-def get_available_models():
+def get_working_models():
+    """
+    Asks the API: 'What models do I actually have access to?'
+    Returns a list of valid model names.
+    """
     try:
-        # List all models that support 'generateContent'
-        models = []
+        model_list = []
         for m in genai.list_models():
+            # Only get models that can generate text (content)
             if 'generateContent' in m.supported_generation_methods:
-                models.append(m.name)
-        
-        # Sort so newer 1.5 models usually appear near top if available
-        models.sort(reverse=True)
-        return models
+                model_list.append(m.name)
+        return model_list
     except Exception as e:
         return []
 
-# Get the list
-available_models = get_available_models()
+# Get the valid list from your account
+my_models = get_working_models()
 
-# Sidebar Selection
+# SIDEBAR: Model Selection
 with st.sidebar:
-    st.header("⚙️ AI Settings")
-    if available_models:
-        selected_model_name = st.selectbox("Select Model Version:", available_models, index=0)
+    st.header("⚙️ System Settings")
+    if my_models:
+        # Sort so the newest 1.5 models are usually at the top
+        my_models.sort(reverse=True)
+        selected_model = st.selectbox("Select Your Model:", my_models, index=0)
+        st.success(f"Connected to: {selected_model}")
     else:
-        st.error("No models found. Check API Key permissions.")
+        st.error("Critical Error: Your API Key works, but Google says you have no models available. Check your Google Cloud console billing/permissions.")
         st.stop()
-
-    st.info(f"Using: {selected_model_name}")
 
 # --- 4. THE ARCHITECT BRAIN (System Prompt) ---
 CRUSH_SYSTEM_INSTRUCTION = """
@@ -147,7 +148,7 @@ with col3:
 
 # --- 6. EXECUTION ---
 if generate_btn:
-    with st.spinner(f"Architecting using {selected_model_name}..."):
+    with st.spinner(f"Architecting using {selected_model}..."):
         try:
             # Inputs
             inputs = f"""
@@ -156,11 +157,10 @@ if generate_btn:
             TRUST: {proximity}
             """
             
-            # Logic for models that support/don't support system instructions
-            # Generally, '1.5' models support it. '1.0' or 'gemini-pro' might fail with it in some library versions.
-            # We will use the Safer Append Method for everything to ensure compatibility.
+            # Use the exact string selected from the sidebar
+            model = genai.GenerativeModel(selected_model)
             
-            model = genai.GenerativeModel(selected_model_name)
+            # Safe Prompting Method (Works on all model versions)
             final_prompt = f"{CRUSH_SYSTEM_INSTRUCTION}\n\nTASK: Generate Script for:\n{inputs}"
 
             response = model.generate_content(final_prompt)
@@ -168,8 +168,7 @@ if generate_btn:
             st.markdown("---")
             st.markdown(response.text)
             
-            st.info(f"💡 **CRUSH Logic:** You are solving **{crush_element.split('-')[1]}** for the **{rubie_role.split('(')[0]}**. If you solve this, the **{raid_role.split('(')[0]}** will feel safe enough to move.")
+            st.info(f"💡 **CRUSH Logic:** You are solving **{crush_element.split('-')[1]}** for the **{rubie_role.split('(')[0]}**.")
 
         except Exception as e:
             st.error(f"Error: {e}")
-            st.error("Tip: Try selecting a different model from the Sidebar.")
