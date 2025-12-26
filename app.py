@@ -1,52 +1,47 @@
 import streamlit as st
 import google.generativeai as genai
-import os
 
 # --- 1. CONFIGURATION ---
-st.set_page_config(page_title="CRUSH Progression Coach", page_icon="🦁", layout="wide")
+st.set_page_config(page_title="CRUSH Call Architect", page_icon="🦁", layout="wide")
 
-# --- 2. CRUSH LOGIC (Progression / Solution Building) ---
+# --- 2. THE ARCHITECT BRAIN (System Prompt) ---
 CRUSH_SYSTEM_INSTRUCTION = """
 You are an expert Sales Coach specialized in the **CRUSH Methodology**.
-**CONTEXT:** This is a **PROGRESSION CALL** (Discovery/Solution Building). The door is open. 
-Your goal is to help the user architect a collaborative session that moves the customer from "Interested" to "Decided."
+**Your Mission:** Generate a progression call script that achieves TWO distinct goals:
+1.  **The Move (CDM/RAID):** Advance the specific **Decision Role** to the next **CDM Stage**.
+2.  **The Future (CRUSH/RUBIE):** De-risk the **Future State** by addressing specific Adoption Risks (C.R.U.S.H.).
 
-### THE LOGIC (Use this strictly):
+### INPUTS:
+* **Goal 1 (Mechanics):** CDM Stage {stage}, RAID Role {raid_role}.
+* **Goal 2 (Future):** RUBIE POV {rubie_role}, Risk Factor {crush_element}.
+* **Trust:** Proximity {proximity}.
 
-**1. THE "NO VALUE" TRAP (The Opener)**
-* **The Error:** "Just checking in" or "Touching base." This signals you have no value to add.
-* **The Fix:** Progression calls require a **Visual Anchor** or **Recap**.
-* **Rule:** If the draft lacks a clear "Purpose" or "Recap of previous value," REJECT it. Demand a "Collaborative Agenda" (e.g., "To ensure we are on track for your Q3 goals...").
+### GENERATION RULES:
 
-**2. THE "FEATURE" TRAP (Solution Building)**
-* **The Error:** Showing the product features (The "What").
-* **The Fix:** Architecting the **Future State** (The "How").
-* **Rule:** * If CDM Stage is 0-1: Focus on **Change** (Why Change?) and **Results** (Value).
-    * If CDM Stage is 2-5: Focus on **Usage** (Workflow fit) and **Support** (Safety net).
-    * *Critique:* If they are pitching features to an "Implementor" or "User," warn them to switch to "Usage" (Day-to-day reality).
+**1. THE OPENING (Visual & Trust):**
+* Establish **Level 2/3 Proximity** immediately.
+* State a "Collaborative Agenda" that explicitly links the *Decision* to the *Future Value*.
 
-**3. THE "ACTIVITY" TRAP (The Goal)**
-* **The Error:** Ending with "Let me know what you think" or "Let's chat again soon."
-* **The Fix:** Driving to the next **Decision Boundary**.
-* **Rule:** The Call to Action (CTA) must target a *Decision*, not just an activity. (e.g., "Decide on the pilot scope" vs "Have another meeting").
+**2. THE FUTURE STATE (Addressing Goal 2):**
+* You must script talking points that resolve the specific **CRUSH Risk Factor** selected.
+* *Logic Check:* If the user selected "Usage Risk" for an "Implementor," talk about *workflows and feasibility*, not ROI.
+* *Logic Check:* If the user selected "Support Risk," talk about *safety nets and recovery*.
 
-### YOUR OUTPUT FORMAT:
+**3. THE DECISION (Addressing Goal 1):**
+* The Call to Action (CTA) must be a **Decision Boundary Cross**.
+* Do not ask for "feedback." Ask for the specific commitment required to move from Stage {stage} to the next.
 
-**1. 🛡️ CRUSH Diagnosis**
-* **Agenda Check:** Does the opener lower "Cognitive Load" or increase it with fluff?
-* **Future-State Gap:** Are they selling the *Product* or the *Adoption* (Usage/Support)?
-* **Empathy Check:** Does this specifically address the {rubie_role}'s fear? (e.g., "You are ignoring the User's fear of extra work.")
+### OUTPUT STRUCTURE:
+**1. 🦁 The "Safe" Opener**
+(Verbatim script establishing Proximity and the Visual Agenda).
 
-**2. 🦁 The CRUSH Rewrite**
-* Rewrite the Opener/Talking Points to be:
-    * **Collaborative:** Use "We" language.
-    * **Visual/Structured:** "First we will cover X, then resolve Y."
-    * **De-Risked:** Address **Adoption Risk** head-on.
+**2. 🔮 The Future State (De-Risking)**
+(3 Bullet points specifically solving the **{crush_element}** risk for the **{rubie_role}**).
 
-**3. ❓ The Golden Questions (Discovery)**
-* Provide 3 deep discovery questions to ask the {raid_role} to uncover hidden blockers (Harmonization/Politics).
+**3. 🚀 The Move (Decision Ask)**
+(A specific closing question to get the **{raid_role}** to commit to the next CDM stage).
 
-Tone: Collaborative, strategic, "Orchestrator" vibe.
+Tone: Strategic, "Orchestrator", High-Value.
 """
 
 # --- 3. API SETUP ---
@@ -61,92 +56,101 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-# --- 4. ROBUST MODEL FINDER (Safe Mode) ---
+# --- 4. MODEL LOADER ---
 @st.cache_resource
 def get_best_model():
-    """
-    Dynamically lists available models and picks the best one.
-    Returns: (model_name, supports_system_instructions_boolean)
-    """
     try:
-        # Get all models that support generating content
-        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-    except Exception as e:
+        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        for m in models:
+            if 'gemini-1.5' in m: return m, True
+        return 'gemini-pro', False
+    except:
         return 'gemini-pro', False
 
-    # Priority: 1.5 Flash -> 1.5 Pro -> 1.0 Pro
-    priorities = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro']
-    
-    for priority in priorities:
-        for available in available_models:
-            if priority in available:
-                supports_sys = '1.5' in available 
-                return available, supports_sys
-    
-    return 'gemini-pro', False
+# --- 5. THE UI WIZARD ---
+st.title("🦁 CRUSH Call Architect")
+st.caption("Define the Move. De-risk the Future.")
 
-# --- 5. UI LAYOUT ---
-st.title("🦁 CRUSH Progression Coach")
-st.caption("Discovery & Solution Building | Architecting the Future State")
+col1, col2, col3 = st.columns(3)
 
-col1, col2 = st.columns([1, 2])
-
+# --- GOAL 1: THE MOVE (Mechanics) ---
 with col1:
-    st.header("1. The Context")
-    st.info("Goal: Collaboration/De-risking")
+    st.header("1. The Move")
+    st.info("Mechanics: CDM & RAID")
     
-    cdm_stage = st.selectbox("CDM Stage", [
+    cdm_stage = st.selectbox("Current CDM Stage", [
         "1 - Sourcing (Evaluating Options)", 
         "2 - Selected (Validating Fit)", 
-        "3 - Ordered (Commercials/Legal)", 
-        "4 - Usage (Implementation Planning)", 
-        "5 - Adoption (Value Review)", 
-        "6 - Assess (Expansion/Renewal)"
-    ], help="Where is the company in the decision journey?")
+        "3 - Ordered (Legal/Commercials)", 
+        "4 - Usage (Implementation Prep)"
+    ], help="Where are they now? We need to move them to the NEXT stage.")
     
-    raid_role = st.selectbox("RAID Role", 
-                             ["Recommender (The Champion)", "Agree’er (The Veto)", "Informer (The Expert)", "Decision Maker (The Signer)"],
-                             help="Who are you collaborating with?")
-    
-    rubie_role = st.selectbox("RUBIE POV", 
-                              ["User (Usability)", "Implementor (Feasibility)", "Benefactor (Outcomes)", "Economic Buyer (ROI)", "Ripple (Impacted)"],
-                              help="What is their lens on the future?")
+    raid_role = st.selectbox("Decision Role (RAID)", [
+        "Recommender (Needs to sell it internally)", 
+        "Agree’er (Needs to feel safe to approve)", 
+        "Informer (Needs technical details)", 
+        "Decision Maker (Needs accountability protection)"
+    ], help="Who are we asking to move?")
 
+# --- GOAL 2: THE FUTURE (Content) ---
 with col2:
-    st.header("2. The Plan")
-    st.success("Paste your Agenda / Talking Points")
-    user_draft = st.text_area("Your Draft:", height=250, placeholder="e.g. 'Agenda: 1. Review requirements. 2. Show demo. 3. Discuss pricing.'")
+    st.header("2. The Future")
+    st.success("Adoption: CRUSH & RUBIE")
     
-    run_btn = st.button("🦁 Coach My Call", type="primary", use_container_width=True)
+    rubie_role = st.selectbox("Adoption POV (RUBIE)", [
+        "User (Cares about Usability)", 
+        "Implementor (Cares about Feasibility)", 
+        "Benefactor (Cares about Results)", 
+        "Economic Buyer (Cares about ROI)"
+    ], help="Whose view of the future matters most here?")
+
+    crush_element = st.selectbox("Primary Future Risk (CRUSH)", [
+        "C - Change Risk (Why do this now?)",
+        "R - Results Risk (Will we get ROI?)",
+        "U - Usage Risk (Is it too hard to use?)",
+        "S - Support Risk (What if it breaks?)",
+        "H - Harmonization Risk (Politics/Integration)"
+    ], help="What specific part of the Future State are they afraid of?")
+
+# --- CONTEXT: THE TRUST ---
+with col3:
+    st.header("3. The Trust")
+    st.warning("Connection: Proximity")
+    
+    proximity = st.radio("Proximity Level", [
+        "Level 2: Transferred (Referral)",
+        "Level 3: Related (Context/Industry)",
+    ], help="Level 4 (Cliché) is banned.")
+    
+    st.markdown("---")
+    generate_btn = st.button("🦁 Architect the Call", type="primary", use_container_width=True)
 
 # --- 6. EXECUTION ---
-if run_btn:
-    if not user_draft:
-        st.error("Please enter a draft first.")
-    else:
-        with st.spinner("Architecting the Decision..."):
-            try:
-                # 1. Get Model
-                model_name, supports_sys = get_best_model()
-                
-                # 2. Build Prompt
-                context_block = f"CONTEXT: PROGRESSION CALL. CDM {cdm_stage}, RAID {raid_role}, RUBIE {rubie_role}"
-                
-                if supports_sys:
-                    model = genai.GenerativeModel(model_name, system_instruction=CRUSH_SYSTEM_INSTRUCTION)
-                    final_prompt = f"{context_block}\n\nUSER DRAFT:\n{user_draft}"
-                else:
-                    model = genai.GenerativeModel(model_name)
-                    final_prompt = f"{CRUSH_SYSTEM_INSTRUCTION}\n\nTASK: Analyze this.\n{context_block}\n\nUSER DRAFT:\n{user_draft}"
-
-                # 3. Generate
-                response = model.generate_content(final_prompt)
-                
-                # 4. Display
-                st.success(f"Connected to: {model_name}")
-                st.markdown("---")
-                st.markdown(response.text)
+if generate_btn:
+    with st.spinner("Aligning the Future State..."):
+        try:
+            model_name, supports_sys = get_best_model()
             
-            except Exception as e:
-                st.error(f"Error: {e}")
-                st.info("If this persists, check your API key.")
+            inputs = f"""
+            GOAL 1 (THE MOVE): Move {raid_role} from CDM Stage {cdm_stage} to Next Stage.
+            GOAL 2 (THE FUTURE): De-risk {crush_element} for the {rubie_role}.
+            TRUST: {proximity}
+            """
+            
+            if supports_sys:
+                model = genai.GenerativeModel(model_name, system_instruction=CRUSH_SYSTEM_INSTRUCTION)
+                prompt = f"Generate Script for:\n{inputs}"
+            else:
+                model = genai.GenerativeModel(model_name)
+                prompt = f"{CRUSH_SYSTEM_INSTRUCTION}\n\nTASK: Generate Script for:\n{inputs}"
+
+            response = model.generate_content(prompt)
+            
+            st.markdown("---")
+            st.markdown(response.text)
+            
+            # Contextual Footer based on CRUSH Elements
+            st.info(f"💡 **CRUSH Logic:** You are solving **{crush_element.split('-')[1]}** for the **{rubie_role.split('(')[0]}**. If you solve this, the **{raid_role.split('(')[0]}** will feel safe enough to move.")
+
+        except Exception as e:
+            st.error(f"Error: {e}")
