@@ -65,32 +65,37 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-# --- 4. ROBUST MODEL LOADER ---
-# This function tries multiple model names to prevent 404 errors
+# --- 4. ROBUST MODEL LOADER (Fixes 404 Errors) ---
 def get_model():
+    """
+    Tries multiple model versions to find one that works.
+    Returns: (model_object, model_name, supports_system_instruction_bool)
+    """
+    # List of models to try in order of preference
     models_to_try = [
         'gemini-1.5-flash',
         'gemini-1.5-flash-latest',
         'gemini-1.5-pro',
-        'gemini-pro'
+        'gemini-1.5-pro-latest',
+        'gemini-pro' # Fallback to 1.0
     ]
     
     for model_name in models_to_try:
         try:
-            # Try to initialize with system instructions
+            # Try to initialize WITH system instruction (preferred)
             model = genai.GenerativeModel(model_name, system_instruction=CRUSH_SYSTEM_INSTRUCTION)
-            return model, model_name, True # True means system_instruction is supported
+            return model, model_name, True
         except Exception:
-            continue
+            try:
+                # If that fails, try WITHOUT system instruction (legacy mode)
+                model = genai.GenerativeModel(model_name)
+                return model, model_name, False
+            except Exception:
+                continue # Try next model
             
-    # Fallback: If all specific attempts fail, try basic gemini-pro without system instruction
-    # This handles cases where the library version is very old
-    try:
-        model = genai.GenerativeModel('gemini-pro')
-        return model, "gemini-pro (Legacy Mode)", False
-    except Exception as e:
-        st.error(f"Critical Error: Could not connect to any Google Gemini model. Error: {e}")
-        st.stop()
+    # If everything fails
+    st.error("Could not connect to any Google Gemini model. Please check your API Key.")
+    st.stop()
 
 # --- 5. THE INTERFACE ---
 st.title("🦁 CRUSH Sales Call Coach")
@@ -149,11 +154,12 @@ if run_button:
     else:
         with st.spinner("Analyzing Adoption Risk..."):
             try:
-                # Get the working model
+                # Get the working model dynamically
                 model, model_name, supports_sys_inst = get_model()
                 
-                # Construct Prompt
-                # If system instruction wasn't supported natively, we prepend it to the prompt manually
+                # Construct Prompt Strategy
+                # If the model supports system instructions natively, we use clean input.
+                # If it's an older model, we manually prepend the instructions to the user prompt.
                 if supports_sys_inst:
                     final_prompt = f"""
                     CONTEXT:
@@ -185,7 +191,7 @@ if run_button:
                 
                 # Render
                 st.markdown("---")
-                st.caption(f"Generated using model: {model_name}")
+                st.caption(f"🧠 Connected via: {model_name}")
                 st.markdown(response.text)
                 
             except Exception as e:
