@@ -4,7 +4,50 @@ import google.generativeai as genai
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="CRUSH Call Architect", page_icon="🦁", layout="wide")
 
-# --- 2. THE ARCHITECT BRAIN (System Prompt) ---
+# --- 2. API SETUP & MODEL DISCOVERY ---
+if "GOOGLE_API_KEY" in st.secrets:
+    api_key = st.secrets["GOOGLE_API_KEY"]
+else:
+    api_key = st.sidebar.text_input("Enter Google API Key", type="password")
+
+if not api_key:
+    st.warning("⚠️ Enter API Key to continue.")
+    st.stop()
+
+genai.configure(api_key=api_key)
+
+# --- 3. DYNAMIC MODEL SELECTOR (The Fix) ---
+# Instead of hardcoding names, we ask the API what is available.
+@st.cache_resource
+def get_available_models():
+    try:
+        # List all models that support 'generateContent'
+        models = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                models.append(m.name)
+        
+        # Sort so newer 1.5 models usually appear near top if available
+        models.sort(reverse=True)
+        return models
+    except Exception as e:
+        return []
+
+# Get the list
+available_models = get_available_models()
+
+# Sidebar Selection
+with st.sidebar:
+    st.header("⚙️ AI Settings")
+    if available_models:
+        selected_model_name = st.selectbox("Select Model Version:", available_models, index=0)
+    else:
+        st.error("No models found. Check API Key permissions.")
+        st.stop()
+
+    st.info(f"Using: {selected_model_name}")
+
+# --- 4. THE ARCHITECT BRAIN (System Prompt) ---
 CRUSH_SYSTEM_INSTRUCTION = """
 You are an expert Sales Coach specialized in the **CRUSH Methodology**.
 **Your Mission:** Generate a progression call script that achieves TWO distinct goals:
@@ -43,29 +86,6 @@ You are an expert Sales Coach specialized in the **CRUSH Methodology**.
 
 Tone: Strategic, "Orchestrator", High-Value.
 """
-
-# --- 3. API SETUP ---
-if "GOOGLE_API_KEY" in st.secrets:
-    api_key = st.secrets["GOOGLE_API_KEY"]
-else:
-    api_key = st.sidebar.text_input("Enter Google API Key", type="password")
-
-if not api_key:
-    st.warning("⚠️ Enter API Key to continue.")
-    st.stop()
-
-genai.configure(api_key=api_key)
-
-# --- 4. MODEL LOADER ---
-@st.cache_resource
-def get_best_model():
-    try:
-        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        for m in models:
-            if 'gemini-1.5' in m: return m, True
-        return 'gemini-pro', False
-    except:
-        return 'gemini-pro', False
 
 # --- 5. THE UI WIZARD ---
 st.title("🦁 CRUSH Call Architect")
@@ -127,30 +147,29 @@ with col3:
 
 # --- 6. EXECUTION ---
 if generate_btn:
-    with st.spinner("Aligning the Future State..."):
+    with st.spinner(f"Architecting using {selected_model_name}..."):
         try:
-            model_name, supports_sys = get_best_model()
-            
+            # Inputs
             inputs = f"""
             GOAL 1 (THE MOVE): Move {raid_role} from CDM Stage {cdm_stage} to Next Stage.
             GOAL 2 (THE FUTURE): De-risk {crush_element} for the {rubie_role}.
             TRUST: {proximity}
             """
             
-            if supports_sys:
-                model = genai.GenerativeModel(model_name, system_instruction=CRUSH_SYSTEM_INSTRUCTION)
-                prompt = f"Generate Script for:\n{inputs}"
-            else:
-                model = genai.GenerativeModel(model_name)
-                prompt = f"{CRUSH_SYSTEM_INSTRUCTION}\n\nTASK: Generate Script for:\n{inputs}"
+            # Logic for models that support/don't support system instructions
+            # Generally, '1.5' models support it. '1.0' or 'gemini-pro' might fail with it in some library versions.
+            # We will use the Safer Append Method for everything to ensure compatibility.
+            
+            model = genai.GenerativeModel(selected_model_name)
+            final_prompt = f"{CRUSH_SYSTEM_INSTRUCTION}\n\nTASK: Generate Script for:\n{inputs}"
 
-            response = model.generate_content(prompt)
+            response = model.generate_content(final_prompt)
             
             st.markdown("---")
             st.markdown(response.text)
             
-            # Contextual Footer based on CRUSH Elements
             st.info(f"💡 **CRUSH Logic:** You are solving **{crush_element.split('-')[1]}** for the **{rubie_role.split('(')[0]}**. If you solve this, the **{raid_role.split('(')[0]}** will feel safe enough to move.")
 
         except Exception as e:
             st.error(f"Error: {e}")
+            st.error("Tip: Try selecting a different model from the Sidebar.")
