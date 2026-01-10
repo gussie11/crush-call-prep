@@ -1,164 +1,112 @@
 import streamlit as st
-import google.generativeai as genai
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_community.tools import DuckDuckGoSearchRun
+from langchain.agents import create_react_agent, AgentExecutor
+from langchain_core.prompts import PromptTemplate
+from langchain.callbacks import StreamlitCallbackHandler
 
-# --- 1. CONFIGURATION ---
-st.set_page_config(page_title="CRUSH Call Architect", page_icon="🦁", layout="centered")
+# --- Page Configuration ---
+st.set_page_config(page_title="360° Sales Analyst (Gemini)", page_icon="🕵️‍♂️", layout="wide")
 
-# --- 2. API SETUP ---
-if "GOOGLE_API_KEY" in st.secrets:
-    api_key = st.secrets["GOOGLE_API_KEY"]
-else:
-    api_key = st.sidebar.text_input("Enter Google API Key", type="password")
-
-if not api_key:
-    st.warning("⚠️ Enter API Key to continue.")
-    st.stop()
-
-genai.configure(api_key=api_key)
-
-# --- 3. DYNAMIC MODEL SELECTOR ---
-@st.cache_resource
-def get_working_models():
-    try:
-        model_list = []
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                model_list.append(m.name)
-        return model_list
-    except Exception as e:
-        return []
-
-my_models = get_working_models()
-
+# --- Sidebar ---
 with st.sidebar:
-    st.header("⚙️ System Settings")
-    if my_models:
-        my_models.sort(reverse=True)
-        selected_model = st.selectbox("Select Your Model:", my_models, index=0)
+    st.header("⚙️ Configuration")
+    
+    # 1. Try to find the key in secrets
+    if "GOOGLE_API_KEY" in st.secrets:
+        st.success("✅ Gemini Key loaded!")
+        api_key = st.secrets["GOOGLE_API_KEY"]
     else:
-        st.error("No models found. Check API Key.")
-        st.stop()
+        # 2. Fallback: Ask user if secret is missing
+        api_key = st.text_input("Enter Gemini API Key", type="password")
+        st.info("💡 Add 'GOOGLE_API_KEY' to your Secrets to skip this.")
 
-# --- 4. THE BRAIN (System Prompt) ---
-CRUSH_SYSTEM_INSTRUCTION = """
-You are an expert Sales Coach specialized in the **CRUSH Methodology**.
-**Your Mission:** Generate a Call Script based on the Simplified Operating Motion.
-
-### MODE 1: MOVING (The Fast Lane)
-**Trigger:** Deal Status = "Moving".
-**Logic:** The deal is healthy. Do NOT over-analyze RAID/RUBIE.
-**Focus:** Align to the **CDM Phase** and the **Next Decision Boundary** [cite: 1074-1075].
-* **Early (CDM 0-2):** Script focuses on **Change** and **Results**.
-* **Mid (CDM 2-5):** Script focuses on **Usage** and **Support**.
-
-### MODE 2: STALLED (The Diagnostic)
-**Trigger:** Deal Status = "Stalled/Blocked".
-**Logic:** The decision has stopped. We must use **RAID/RUBIE** to find the blocker [cite: 1076-1078].
-**Strategy:**
-1.  **Identify the Blocker:** Is it a hidden *Informer* (RAID)? Or a fearful *User* (RUBIE)?
-2.  **Script the Fix:** Address that specific fear directly.
-
-### INPUTS:
-* **Status:** {deal_status}.
-* **Context:** CDM {stage}.
-* **Deep Dive (Only if Stalled):** RAID {raid_role}, RUBIE {rubie_role}.
-
-### OUTPUT STRUCTURE:
-**1. 🦁 The Opener**
-(A visual/collaborative agenda script appropriate for the stage).
-
-**2. 🎯 The Strategy**
-(If Moving: 3 Bullet points to advance to the next stage).
-(If Stalled: 3 Bullet points to unblock the specific RAID/RUBIE fear).
-
-**3. 🚀 The Call to Action**
-(A specific closing question).
-
-Tone: Strategic, Professional, Efficient.
-"""
-
-# --- 5. THE UI (Simplified Motion) ---
-st.title("🦁 CRUSH Call Architect")
-st.caption("Simplified Operating Motion | Sequence > Speed")
-
-# STEP 1: THE STATUS CHECK (The Filter)
-st.header("1. The Pulse")
-deal_status = st.radio("How is the deal progressing?", 
-                       ["✅ Moving (Standard Motion)", "❌ Stalled (Diagnostic Needed)"],
-                       horizontal=True,
-                       help="If moving, we keep it simple. If stalled, we dig deep [cite: 1074-1076].")
+# --- Main Interface ---
+st.title("🕵️‍♂️ 360° Sales Analyst (Gemini Powered)")
 
 col1, col2 = st.columns(2)
-
-# STEP 2: THE CONTEXT (Always needed)
 with col1:
-    st.header("2. The Stage")
-    cdm_stage = st.selectbox("CDM Stage", [
-        "0 - Need (Latent Pain)",
-        "1 - Sourcing (Evaluating Options)", 
-        "2 - Selected (Validating Fit)",
-        "3 - Ordered (Commercials)",
-        "4 - Usage (Implementation)"
-    ])
-
-# STEP 3: THE VARIABLE (Depends on Status)
+    target_company = st.text_input("Target Company", placeholder="e.g. Agilent")
+    business_unit = st.text_input("Business Unit", placeholder="e.g. Life Sciences")
 with col2:
-    st.header("3. The Details")
+    competitors = st.text_input("Competitors", placeholder="e.g. Thermo Fisher")
+    user_context = st.text_area("Context", placeholder="Paste notes here...", height=100)
+
+# --- Prompt Builder ---
+def build_prompt(company, unit, comps, context):
+    return f"""
+    Act as a Senior Market Intelligence Analyst. Write a briefing for **{company}** ({unit} unit).
+    Compare against: {comps if comps else "Direct Competitors"}.
     
-    # LOGIC: Only show RAID/RUBIE if Stalled
-    if "Moving" in deal_status:
-        st.success("🚀 **Fast Lane Active:** No deep mapping needed. We focus on the Next Step.")
-        raid_role = "General Stakeholder"
-        rubie_role = "General Alignment"
-    else:
-        st.error("🩺 **Diagnostic Mode Active:** We need to find the blocker.")
-        raid_role = st.selectbox("Who is blocking? (RAID)", [
-            "Recommender (Champion)", 
-            "Agree’er (Veto Power)", 
-            "Decision Maker (Signer)",
-            "Informer (Expert)"
-        ])
-        rubie_role = st.selectbox("What is their Fear? (RUBIE)", [
-            "Benefactor (Results Risk)", 
-            "Economic Buyer (Financial Risk)",
-            "User (Usability Risk)",
-            "Implementor (Feasibility Risk)",
-            "Ripple (Disruption Risk)"
-        ])
+    Context: {context}
+    
+    SECTIONS:
+    1. Business Unit Health (Growth/Margins vs Competitors)
+    2. Strategic Initiatives (Funded Priorities)
+    3. Financial & Risk (Cash Flow, Layoffs, Risk Factors)
+    4. Soft Signals (Leadership Changes, Hiring)
+    
+    Format: Markdown Tables. No fluff.
+    """
 
-st.markdown("---")
-generate_btn = st.button("🦁 Architect the Call", type="primary", use_container_width=True)
+# --- App Logic ---
+if target_company and business_unit:
+    final_prompt = build_prompt(target_company, business_unit, competitors, user_context)
+    
+    tab1, tab2 = st.tabs(["📋 Generate Prompt", "🤖 Run Agent"])
 
-# --- 6. EXECUTION ---
-if generate_btn:
-    with st.spinner(f"Architecting using {selected_model}..."):
-        try:
-            # Prepare inputs
-            inputs = f"""
-            STATUS: {deal_status}
-            CONTEXT: CDM {cdm_stage}
-            RAID: {raid_role}
-            RUBIE: {rubie_role}
-            """
-            
-            # Initialize Model
-            model = genai.GenerativeModel(selected_model)
-            
-            # Construct Prompt
-            final_prompt = f"{CRUSH_SYSTEM_INSTRUCTION}\n\nTASK: Generate Script for:\n{inputs}"
+    with tab1:
+        st.subheader("Copy this Prompt")
+        st.code(final_prompt, language="markdown")
 
-            # Generate
-            response = model.generate_content(final_prompt)
-            
-            # Render Results
-            st.markdown("---")
-            st.markdown(response.text)
-            
-            # Contextual Footer
-            if "Moving" in deal_status:
-                 st.info("💡 **Simplified Motion:** Since the deal is moving, we skipped complex mapping to save your time[cite: 1075].")
-            else:
-                 st.info(f"💡 **Diagnostic Mode:** We are targeting the **{rubie_role.split('(')[0]}** to unblock the deal[cite: 1078].")
+    with tab2:
+        if not api_key:
+            st.warning("⚠️ Please enter a Gemini API Key in the sidebar.")
+        else:
+            if st.button("Run Analysis"):
+                st.info("🔍 Gemini is thinking... (This may take 30s)")
+                
+                # 1. Setup Tools
+                search = DuckDuckGoSearchRun()
+                tools = [search]
+                
+                # 2. Setup LLM (SWITCHED TO GEMINI)
+                llm = ChatGoogleGenerativeAI(
+                    model="gemini-pro", 
+                    google_api_key=api_key,
+                    temperature=0
+                )
+                
+                # 3. Define the ReAct Prompt (New Format)
+                template = '''Answer the following questions as best you can. You have access to the following tools:
 
-        except Exception as e:
-            st.error(f"Error: {e}")
+                {tools}
+
+                Use the following format:
+
+                Question: the input question you must answer
+                Thought: you should always think about what to do
+                Action: the action to take, should be one of [{tool_names}]
+                Action Input: the input to the action
+                Observation: the result of the action
+                ... (this Thought/Action/Action Input/Observation can repeat N times)
+                Thought: I now know the final answer
+                Final Answer: the final answer to the original input question
+
+                Begin!
+
+                Question: {input}
+                Thought:{agent_scratchpad}'''
+
+                prompt = PromptTemplate.from_template(template)
+
+                # 4. Create Agent (This fixes your error)
+                agent = create_react_agent(llm, tools, prompt)
+                agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
+                
+                # 5. Run
+                st_callback = StreamlitCallbackHandler(st.container())
+                response = agent_executor.invoke({"input": final_prompt}, {"callbacks": [st_callback]})
+                
+                st.markdown("### 📊 Analyst Report")
+                st.markdown(response['output'])
